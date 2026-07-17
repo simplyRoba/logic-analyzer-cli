@@ -57,11 +57,14 @@ class Device:
     """Open serial connection to a LogicAnalyzer, with handshake + recovery."""
 
     def __init__(self, port: Optional[str] = None, log: Callable[[str], None] = None,
-                 abort_settle_s: float = 2.0):
+                 abort_settle_s: float = 2.0, recovery_settle_s: Optional[float] = None):
         if serial is None:
             raise RuntimeError("pyserial is required: pip install pyserial")
         self._log = log or (lambda m: print(m, file=sys.stderr))
         self._abort_settle_s = abort_settle_s
+        # Per-attempt settle during heavy recovery; None = behavior-derived
+        # (grows past the device's ~2 s cancel-poll cycle). Tests set 0.
+        self._recovery_settle_s = recovery_settle_s
         self.port = find_port(port)
         self.sp = None
         self.info: Optional[DeviceInfo] = None
@@ -115,29 +118,71 @@ class Device:
 
     # -- handshake / recovery ----------------------------------------------
 
-    def _try_id(self) -> list[str]:
+    def _try_id(self, read_timeout: float = 2.0) -> list[str]:
         self.sp.reset_input_buffer()
         self.sp.write(protocol.id_frame())
         self.sp.flush()
-        first = self._readline(timeout=2.0)
+        first = self._readline(timeout=read_timeout)
         if not first.startswith("LOGIC_ANALYZER"):
             return [first]
         return [first] + [self._readline() for _ in range(4)]
 
-    def _recover_and_handshake(self, attempts: int = 4) -> None:
+    def _drain(self, seconds: float) -> None:
+        """Read and discard everything the device streams for `seconds`."""
+        end = time.time() + seconds
+        self.sp.timeout = 0.2
+        while time.time() < end:
+            if not self.sp.read(65536):
+                break
+
+    def _toggle_dtr(self) -> None:
+        """Pulse DTR/RTS low then high. On the RP2040/RP2350 tinyUSB CDC this
+        resets the host-side line state and helps knock the device out of a
+        wedged transfer without a physical replug."""
+        pause = 0.0 if self._recovery_settle_s == 0 else 0.2
+        try:
+            self.sp.dtr = False
+            self.sp.rts = False
+            time.sleep(pause)
+            self.sp.dtr = True
+            self.sp.rts = True
+            time.sleep(pause)
+        except Exception:
+            pass
+
+    def _recover_and_handshake(self, attempts: int = 5) -> None:
+        """Bring the device back to answering the ID command.
+
+        The firmware, while a capture is armed, only checks for a cancel byte
+        once per ~2 s poll cycle and may still have a data burst to flush. So a
+        naive abort+immediate-retry loses the race. Each recovery attempt here
+        escalates: send abort, wait past the ~2 s poll cycle, drain the stream,
+        toggle DTR to reset the CDC line state, reopen, then retry ID with a
+        generous read timeout.
+        """
         last = ""
-        for _ in range(attempts):
-            try:
-                lines = self._try_id()
-                self.info = DeviceInfo.from_handshake(lines)
-                return
-            except Exception as e:  # unresponsive or partial: recover
-                last = str(e)
+        # First, a plain fast attempt: a healthy device answers immediately.
+        try:
+            self.info = DeviceInfo.from_handshake(self._try_id())
+            return
+        except Exception as e:
+            last = str(e)
+
+        for i in range(attempts):
+            settle = self._recovery_settle_s if self._recovery_settle_s is not None else (2.5 + i)
             self.abort()
+            self._drain(settle)
+            self._toggle_dtr()
             try:
                 self._open()
             except Exception:
                 time.sleep(0.5)
+                continue
+            try:
+                self.info = DeviceInfo.from_handshake(self._try_id(read_timeout=3.0))
+                return
+            except Exception as e:
+                last = str(e)
         raise RuntimeError(
             f"device did not respond to ID after {attempts} recovery attempts "
             f"({last}); replug the analyzer if this persists"

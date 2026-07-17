@@ -18,13 +18,26 @@ class FakeSerial:
     def __init__(self, scenario):
         self.scenario = scenario
         self.timeout = 1.0
-        self.dtr = False
+        self._dtr = False
         self.rts = False
+        self.toggle_count = 0            # DTR low->high pulses
         self._out = bytearray()          # bytes the client wrote
         self._in = bytearray()           # bytes queued for the client to read
         self.closed = False
         self.reopen_count = 0
         scenario.attach(self)
+
+    @property
+    def dtr(self):
+        return self._dtr
+
+    @dtr.setter
+    def dtr(self, v):
+        if v and not self._dtr:
+            self.toggle_count += 1
+            # persist across reopens (real DTR toggles the physical device)
+            self.scenario.toggle_count = getattr(self.scenario, "toggle_count", 0) + 1
+        self._dtr = v
 
     # -- pyserial API surface used by Device --
     def write(self, data):
@@ -202,6 +215,30 @@ class StuckThenRecovers(Scenario):
 def test_recovery_from_stuck_device(patch_serial):
     sc = StuckThenRecovers()
     patch_serial(sc)
-    dev = Device(port="/dev/fake", log=lambda m: None, abort_settle_s=0)
+    dev = Device(port="/dev/fake", log=lambda m: None, abort_settle_s=0,
+                 recovery_settle_s=0)
     assert dev.handshake().name.startswith("LOGIC_ANALYZER")
     assert sc.seen_abort
+
+
+class DeepWedge(Scenario):
+    """Answers ID only after enough DTR toggles (simulates a hard wedge that a
+    plain abort+retry can't clear but a CDC line-state reset can)."""
+
+    def __init__(self, needed_toggles=2):
+        super().__init__()
+        self.needed_toggles = needed_toggles
+
+    def on_write(self, s, data):
+        if data == bytes([0x55, 0xAA, 0x00, 0xAA, 0x55]):
+            if getattr(self, "toggle_count", 0) >= self.needed_toggles:
+                s.queue(HANDSHAKE)
+        # otherwise silent
+
+
+def test_recovery_needs_dtr_toggle(patch_serial):
+    sc = DeepWedge(needed_toggles=2)
+    patch_serial(sc)
+    dev = Device(port="/dev/fake", log=lambda m: None, abort_settle_s=0,
+                 recovery_settle_s=0)
+    assert dev.handshake().name.startswith("LOGIC_ANALYZER")
