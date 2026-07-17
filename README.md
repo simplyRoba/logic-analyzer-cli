@@ -35,11 +35,16 @@ unaffiliated.
 
 ## Install
 
+Install directly from GitHub:
+
 ```bash
-pip install -e .
-# or, once published:
-# pip install logic-analyzer-cli
+pip install git+ssh://git@github.com/simplyRoba/logic-analyzer-cli.git
+# or over HTTPS:
+pip install git+https://github.com/simplyRoba/logic-analyzer-cli.git
 ```
+
+This puts the `la-capture` command on your PATH. To develop against a local
+checkout, use an editable install instead: `pip install -e .` from the repo root.
 
 Requires Python ≥ 3.9 and `pyserial`. Use a 3.3 V logic level to the analyzer.
 
