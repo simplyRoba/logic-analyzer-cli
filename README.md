@@ -115,6 +115,4 @@ la-capture smoke.csv -c A=1 --wait 5    # toggle channel 1; expect a CSV, or a
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). The upstream gusmanb LogicAnalyzer
-project is also GPL-licensed; this independent client is released under the same
-terms.
+GPL-3.0-or-later. See [LICENSE](LICENSE).
