@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "logic-analyzer-cli"
+version = "0.1.0"
+description = "Headless capture client for the gusmanb LogicAnalyzer (RP2040/RP2350)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "simplyRoba" }]
+keywords = ["logic-analyzer", "gusmanb", "rp2040", "rp2350", "pico", "sigrok", "capture"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Hardware",
+]
+dependencies = ["pyserial>=3.5"]
+
+[project.urls]
+Homepage = "https://github.com/simplyRoba/logic-analyzer-cli"
+Repository = "https://github.com/simplyRoba/logic-analyzer-cli"
+Issues = "https://github.com/simplyRoba/logic-analyzer-cli/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+la-capture = "logic_analyzer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/logic_analyzer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
