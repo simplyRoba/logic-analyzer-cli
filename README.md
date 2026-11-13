@@ -117,7 +117,3 @@ la-capture --info                       # should print the device banner + limit
 la-capture smoke.csv -c A=1 --wait 5    # toggle channel 1; expect a CSV, or a
                                         # clean timeout message (never a hang)
 ```
-
-## License
-
-GPL-3.0-or-later. See [LICENSE](LICENSE).
